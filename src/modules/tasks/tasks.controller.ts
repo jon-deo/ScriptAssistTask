@@ -10,6 +10,7 @@ import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
 import { RateLimit } from '../../common/decorators/rate-limit.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { QueryPerformanceService } from '../../common/services/query-performance.service';
+import { RedisCacheService } from '../../common/services/redis-cache.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('tasks')
@@ -21,6 +22,7 @@ export class TasksController {
   constructor(
     private readonly tasksService: TasksService,
     private readonly queryPerformanceService: QueryPerformanceService,
+    private readonly cacheService: RedisCacheService,
     // ✅ OPTIMIZED: Removed direct repository access, using service layer properly
   ) { }
 
@@ -90,6 +92,31 @@ export class TasksController {
     } catch (error) {
       throw new HttpException(
         `Failed to get performance metrics: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @Get('cache-stats')
+  @ApiOperation({ summary: 'Get Redis cache statistics and performance metrics' })
+  @ApiResponse({
+    status: 200,
+    description: 'Cache statistics retrieved successfully'
+  })
+  async getCacheStats() {
+    try {
+      // ✅ MONITORING: Get cache performance metrics
+      const cacheStats = await this.cacheService.getStats();
+
+      return {
+        success: true,
+        timestamp: new Date().toISOString(),
+        cache: cacheStats,
+        message: cacheStats.connected ? 'Cache is operational' : 'Cache connection issues detected'
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Failed to get cache statistics: ${error instanceof Error ? error.message : 'Unknown error'}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }

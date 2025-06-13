@@ -8,6 +8,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { TaskStatus } from './enums/task-status.enum';
 import { TaskPriority } from './enums/task-priority.enum';
+import { RedisCacheService } from '../../common/services/redis-cache.service';
 
 @Injectable()
 export class TasksService {
@@ -17,6 +18,7 @@ export class TasksService {
     @InjectQueue('task-processing')
     private taskQueue: Queue,
     private dataSource: DataSource,
+    private readonly cacheService: RedisCacheService,
   ) { }
 
   async create(createTaskDto: CreateTaskDto, userId: string): Promise<Task> {
@@ -44,6 +46,12 @@ export class TasksService {
           },
         });
 
+        // ✅ CACHE INVALIDATION: Clear task-related caches when new task is created
+        await Promise.all([
+          this.cacheService.deletePattern('list:*', 'tasks'), // Clear all task lists
+          this.cacheService.deletePattern('stats:*', 'tasks'), // Clear all stats
+        ]);
+
         return savedTask;
       } catch (error) {
         // ✅ ERROR HANDLING: Transaction will automatically rollback
@@ -68,8 +76,8 @@ export class TasksService {
   }
 
   /**
-   * ✅ OPTIMIZED: Database-level filtering and pagination
-   * Replaces memory-based filtering with efficient SQL queries
+   * ✅ OPTIMIZED: Database-level filtering and pagination with caching
+   * Replaces memory-based filtering with efficient SQL queries + Redis cache
    */
   async findAllWithFilters(filters: {
     status?: string;
@@ -98,48 +106,57 @@ export class TasksService {
       sortOrder = 'DESC'
     } = filters;
 
-    // ✅ PERFORMANCE: Build query with database-level filtering
-    const queryBuilder = this.tasksRepository.createQueryBuilder('task');
+    // ✅ CACHE: Create cache key based on filters (3 minutes TTL for task lists)
+    const cacheKey = `list:${JSON.stringify({ status, priority, userId, page, limit, sortBy, sortOrder })}`;
 
-    // ✅ AUTHORIZATION: Filter by userId if provided
-    if (userId) {
-      queryBuilder.andWhere('task.userId = :userId', { userId });
-    }
+    return this.cacheService.getOrSet(
+      cacheKey,
+      async () => {
+        // ✅ PERFORMANCE: Build query with database-level filtering
+        const queryBuilder = this.tasksRepository.createQueryBuilder('task');
 
-    // ✅ PERFORMANCE: Add filters at database level, not in memory
-    if (status) {
-      queryBuilder.andWhere('task.status = :status', { status });
-    }
+        // ✅ AUTHORIZATION: Filter by userId if provided
+        if (userId) {
+          queryBuilder.andWhere('task.userId = :userId', { userId });
+        }
 
-    if (priority) {
-      queryBuilder.andWhere('task.priority = :priority', { priority });
-    }
+        // ✅ PERFORMANCE: Add filters at database level, not in memory
+        if (status) {
+          queryBuilder.andWhere('task.status = :status', { status });
+        }
 
-    // ✅ PERFORMANCE: Database-level sorting
-    const allowedSortFields = ['title', 'status', 'priority', 'createdAt', 'dueDate'];
-    const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
-    queryBuilder.orderBy(`task.${safeSortBy}`, sortOrder);
+        if (priority) {
+          queryBuilder.andWhere('task.priority = :priority', { priority });
+        }
 
-    // ✅ PERFORMANCE: Database-level pagination
-    const offset = (page - 1) * limit;
-    queryBuilder.skip(offset).take(limit);
+        // ✅ PERFORMANCE: Database-level sorting
+        const allowedSortFields = ['title', 'status', 'priority', 'createdAt', 'dueDate'];
+        const safeSortBy = allowedSortFields.includes(sortBy) ? sortBy : 'createdAt';
+        queryBuilder.orderBy(`task.${safeSortBy}`, sortOrder);
 
-    // ✅ PERFORMANCE: Get total count and data in parallel
-    const [data, total] = await queryBuilder.getManyAndCount();
+        // ✅ PERFORMANCE: Database-level pagination
+        const offset = (page - 1) * limit;
+        queryBuilder.skip(offset).take(limit);
 
-    const totalPages = Math.ceil(total / limit);
-    const hasNext = page < totalPages;
-    const hasPrev = page > 1;
+        // ✅ PERFORMANCE: Get total count and data in parallel
+        const [data, total] = await queryBuilder.getManyAndCount();
 
-    return {
-      data,
-      total,
-      page,
-      limit,
-      totalPages,
-      hasNext,
-      hasPrev,
-    };
+        const totalPages = Math.ceil(total / limit);
+        const hasNext = page < totalPages;
+        const hasPrev = page > 1;
+
+        return {
+          data,
+          total,
+          page,
+          limit,
+          totalPages,
+          hasNext,
+          hasPrev,
+        };
+      },
+      { ttl: 180, namespace: 'tasks' } // 3 minutes TTL for task lists
+    );
   }
 
   async findOne(id: string, userId?: string, userRole?: string): Promise<Task> {
@@ -216,6 +233,12 @@ export class TasksService {
           });
         }
 
+        // ✅ CACHE INVALIDATION: Clear task-related caches when task is updated
+        await Promise.all([
+          this.cacheService.deletePattern('list:*', 'tasks'), // Clear all task lists
+          this.cacheService.deletePattern('stats:*', 'tasks'), // Clear all stats
+        ]);
+
         return updatedTask!;
       } catch (error) {
         if (error instanceof NotFoundException) {
@@ -250,6 +273,12 @@ export class TasksService {
     if (deleteResult.affected === 0) {
       throw new NotFoundException('Task not found');
     }
+
+    // ✅ CACHE INVALIDATION: Clear task-related caches when task is deleted
+    await Promise.all([
+      this.cacheService.deletePattern('list:*', 'tasks'), // Clear all task lists
+      this.cacheService.deletePattern('stats:*', 'tasks'), // Clear all stats
+    ]);
   }
 
   async findByStatus(status: TaskStatus): Promise<Task[]> {
@@ -274,8 +303,8 @@ export class TasksService {
   }
 
   /**
-   * ✅ OPTIMIZED: Get task statistics using SQL aggregation
-   * Replaces N+1 query problem with single efficient query
+   * ✅ OPTIMIZED: Get task statistics using SQL aggregation with caching
+   * Replaces N+1 query problem with single efficient query + Redis cache
    */
   async getTaskStatistics(userId?: string, userRole?: string): Promise<{
     total: number;
@@ -284,37 +313,46 @@ export class TasksService {
     pending: number;
     highPriority: number;
   }> {
-    // ✅ PERFORMANCE: Single SQL query with aggregation instead of loading all tasks
-    const queryBuilder = this.tasksRepository
-      .createQueryBuilder('task')
-      .select([
-        'COUNT(*) as total',
-        'COUNT(CASE WHEN task.status = :completed THEN 1 END) as completed',
-        'COUNT(CASE WHEN task.status = :inProgress THEN 1 END) as inProgress',
-        'COUNT(CASE WHEN task.status = :pending THEN 1 END) as pending',
-        'COUNT(CASE WHEN task.priority = :highPriority THEN 1 END) as highPriority'
-      ])
-      .setParameters({
-        completed: TaskStatus.COMPLETED,
-        inProgress: TaskStatus.IN_PROGRESS,
-        pending: TaskStatus.PENDING,
-        highPriority: TaskPriority.HIGH
-      });
+    // ✅ CACHE: Cache stats for 10 minutes (expensive aggregation query)
+    const cacheKey = userRole === 'admin' ? 'stats:global' : `stats:user:${userId}`;
 
-    // ✅ AUTHORIZATION: Filter by userId for non-admin users
-    if (userRole !== 'admin' && userId) {
-      queryBuilder.andWhere('task.userId = :userId', { userId });
-    }
+    return this.cacheService.getOrSet(
+      cacheKey,
+      async () => {
+        // ✅ PERFORMANCE: Single SQL query with aggregation instead of loading all tasks
+        const queryBuilder = this.tasksRepository
+          .createQueryBuilder('task')
+          .select([
+            'COUNT(*) as total',
+            'COUNT(CASE WHEN task.status = :completed THEN 1 END) as completed',
+            'COUNT(CASE WHEN task.status = :inProgress THEN 1 END) as inProgress',
+            'COUNT(CASE WHEN task.status = :pending THEN 1 END) as pending',
+            'COUNT(CASE WHEN task.priority = :highPriority THEN 1 END) as highPriority'
+          ])
+          .setParameters({
+            completed: TaskStatus.COMPLETED,
+            inProgress: TaskStatus.IN_PROGRESS,
+            pending: TaskStatus.PENDING,
+            highPriority: TaskPriority.HIGH
+          });
 
-    const result = await queryBuilder.getRawOne();
+        // ✅ AUTHORIZATION: Filter by userId for non-admin users
+        if (userRole !== 'admin' && userId) {
+          queryBuilder.andWhere('task.userId = :userId', { userId });
+        }
 
-    return {
-      total: parseInt(result.total) || 0,
-      completed: parseInt(result.completed) || 0,
-      inProgress: parseInt(result.inProgress) || 0,
-      pending: parseInt(result.pending) || 0,
-      highPriority: parseInt(result.highPriority) || 0,
-    };
+        const result = await queryBuilder.getRawOne();
+
+        return {
+          total: parseInt(result.total) || 0,
+          completed: parseInt(result.completed) || 0,
+          inProgress: parseInt(result.inProgress) || 0,
+          pending: parseInt(result.pending) || 0,
+          highPriority: parseInt(result.highPriority) || 0,
+        };
+      },
+      { ttl: 600, namespace: 'tasks' } // 10 minutes TTL for stats
+    );
   }
 
   async updateStatus(id: string, status: string): Promise<Task> {

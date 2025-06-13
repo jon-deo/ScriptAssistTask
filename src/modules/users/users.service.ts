@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { RedisCacheService } from '../../common/services/redis-cache.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class UsersService {
   constructor(
     @InjectRepository(User)
     private usersRepository: Repository<User>,
+    private readonly cacheService: RedisCacheService,
   ) { }
 
   async create(createUserDto: CreateUserDto): Promise<User> {
@@ -27,11 +29,18 @@ export class UsersService {
   }
 
   async findOne(id: string): Promise<User> {
-    const user = await this.usersRepository.findOne({ where: { id } });
-    if (!user) {
-      throw new NotFoundException('User not found');
-    }
-    return user;
+    // ✅ OPTIMIZED: Cache user profiles for 5 minutes (frequently accessed, rarely changed)
+    return this.cacheService.getOrSet(
+      `user:${id}`,
+      async () => {
+        const user = await this.usersRepository.findOne({ where: { id } });
+        if (!user) {
+          throw new NotFoundException('User not found');
+        }
+        return user;
+      },
+      { ttl: 300, namespace: 'users' } // 5 minutes TTL
+    );
   }
 
   async findByEmail(email: string): Promise<User | null> {
@@ -46,11 +55,19 @@ export class UsersService {
     }
 
     this.usersRepository.merge(user, updateUserDto);
-    return this.usersRepository.save(user);
+    const updatedUser = await this.usersRepository.save(user);
+
+    // ✅ CACHE INVALIDATION: Clear user cache when updated
+    await this.cacheService.delete(`user:${id}`, 'users');
+
+    return updatedUser;
   }
 
   async remove(id: string): Promise<void> {
     const user = await this.findOne(id);
     await this.usersRepository.remove(user);
+
+    // ✅ CACHE INVALIDATION: Clear user cache when deleted
+    await this.cacheService.delete(`user:${id}`, 'users');
   }
 } 
