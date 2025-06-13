@@ -52,6 +52,22 @@ import jwtConfig from './config/jwt.config';
         connection: {
           host: configService.get('REDIS_HOST'),
           port: configService.get('REDIS_PORT'),
+          // ✅ RELIABILITY: Enhanced Redis connection configuration
+          maxRetriesPerRequest: 3,
+          retryDelayOnFailover: 100,
+          lazyConnect: true,
+          keepAlive: 30000,
+        },
+        // ✅ PERFORMANCE: Global queue configuration
+        defaultJobOptions: {
+          removeOnComplete: 100, // Keep last 100 completed jobs
+          removeOnFail: 50, // Keep last 50 failed jobs for debugging
+          // ✅ RELIABILITY: Default retry configuration
+          attempts: 3,
+          backoff: {
+            type: 'exponential',
+            delay: 2000,
+          },
         },
       }),
     }),

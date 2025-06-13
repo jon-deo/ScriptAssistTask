@@ -7,6 +7,10 @@ import { TaskFilterDto, PaginatedTaskResponseDto } from './dto/task-filter.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiResponse } from '@nestjs/swagger';
 import { TaskStatus } from './enums/task-status.enum';
 import { RateLimitGuard } from '../../common/guards/rate-limit.guard';
+import { RolesGuard } from '../../common/guards/roles.guard';
+import { Roles } from '../../common/decorators/roles.decorator';
+import { OverdueTasksService } from '../../queues/scheduled-tasks/overdue-tasks.service';
+import { TaskProcessorService } from '../../queues/task-processor/task-processor.service';
 import { RateLimit } from '../../common/decorators/rate-limit.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { QueryPerformanceService } from '../../common/services/query-performance.service';
@@ -23,6 +27,8 @@ export class TasksController {
     private readonly tasksService: TasksService,
     private readonly queryPerformanceService: QueryPerformanceService,
     private readonly cacheService: RedisCacheService,
+    private readonly overdueTasksService: OverdueTasksService,
+    private readonly taskProcessorService: TaskProcessorService,
     // ✅ OPTIMIZED: Removed direct repository access, using service layer properly
   ) { }
 
@@ -258,6 +264,87 @@ export class TasksController {
     } catch (error) {
       throw new HttpException(
         `Bulk update failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  // ✅ QUEUE MANAGEMENT ENDPOINTS (Admin only)
+
+  @Post('admin/trigger-overdue-check')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Manually trigger overdue tasks check (Admin only)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Overdue tasks check triggered successfully'
+  })
+  async triggerOverdueCheck(@CurrentUser() user: any) {
+    try {
+      const result = await this.overdueTasksService.triggerOverdueCheck();
+
+      return {
+        success: true,
+        message: 'Overdue tasks check completed',
+        ...result,
+        triggeredBy: user.id,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Failed to trigger overdue check: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @Get('admin/queue-metrics')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Get queue processing metrics (Admin only)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Queue metrics retrieved successfully'
+  })
+  async getQueueMetrics(@CurrentUser() user: any) {
+    try {
+      const metrics = this.taskProcessorService.getMetrics();
+
+      return {
+        success: true,
+        metrics,
+        timestamp: new Date().toISOString(),
+        requestedBy: user.id,
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Failed to get queue metrics: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        HttpStatus.INTERNAL_SERVER_ERROR
+      );
+    }
+  }
+
+  @Post('admin/reset-queue-metrics')
+  @UseGuards(RolesGuard)
+  @Roles('admin')
+  @ApiOperation({ summary: 'Reset queue processing metrics (Admin only)' })
+  @ApiResponse({
+    status: 200,
+    description: 'Queue metrics reset successfully'
+  })
+  async resetQueueMetrics(@CurrentUser() user: any) {
+    try {
+      this.taskProcessorService.resetMetrics();
+
+      return {
+        success: true,
+        message: 'Queue metrics reset successfully',
+        resetBy: user.id,
+        timestamp: new Date().toISOString(),
+      };
+    } catch (error) {
+      throw new HttpException(
+        `Failed to reset queue metrics: ${error instanceof Error ? error.message : 'Unknown error'}`,
         HttpStatus.INTERNAL_SERVER_ERROR
       );
     }

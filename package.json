@@ -23,6 +23,8 @@
     "test:cache:simple": "node test-cache-simple.js",
     "test:errors": "node test/error-handling/test-error-handling-complete.js",
     "test:errors:manual": "node test/error-handling/test-error-manual.js",
+    "test:queue": "node test/background-processing/test-queue-processing.js",
+    "test:queue:check": "node test/background-processing/test-implementation-check.js",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate src/database/migrations/Migration",
     "migration:run": "npm run typeorm -- migration:run",
