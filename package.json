@@ -21,6 +21,8 @@
     "test:cache": "node test-redis-cache-complete.js",
     "test:cache:quick": "node test-cache-quick.js",
     "test:cache:simple": "node test-cache-simple.js",
+    "test:errors": "node test/error-handling/test-error-handling-complete.js",
+    "test:errors:manual": "node test/error-handling/test-error-manual.js",
     "typeorm": "typeorm-ts-node-commonjs -d src/database/data-source.ts",
     "migration:generate": "npm run typeorm -- migration:generate src/database/migrations/Migration",
     "migration:run": "npm run typeorm -- migration:run",
