@@ -188,39 +188,48 @@ export class TasksController {
     const { tasks: taskIds, action } = batchOperation;
 
     try {
-      // ✅ AUTHORIZATION: Validate user can access these tasks
-      const { existing, missing } = await this.tasksService.validateTasksExist(taskIds, user.id, user.role);
-
-      if (missing.length > 0) {
-        return {
-          success: false,
-          message: `Tasks not found or access denied: ${missing.join(', ')}`,
-          processed: 0,
-          failed: missing.length,
-          failedTaskIds: missing
-        };
-      }
-
-      // ✅ OPTIMIZED: Use enhanced bulk operations with detailed results
+      // ✅ OPTIMIZED: Let bulk operations handle validation and process valid tasks
+      // This allows partial success - valid tasks are processed, invalid ones are reported as failed
       let result;
       switch (action) {
         case BatchAction.COMPLETE:
-          result = await this.tasksService.bulkUpdateStatus(existing, TaskStatus.COMPLETED, user.id, user.role);
+          result = await this.tasksService.bulkUpdateStatus(taskIds, TaskStatus.COMPLETED, user.id, user.role);
           break;
         case BatchAction.DELETE:
-          result = await this.tasksService.bulkDelete(existing, user.id, user.role);
+          result = await this.tasksService.bulkDelete(taskIds, user.id, user.role);
           break;
         default:
           throw new HttpException(`Unknown action: ${action}`, HttpStatus.BAD_REQUEST);
       }
 
+      // ✅ IMPROVED: Handle partial success scenarios
+      const hasFailures = result.failed.length > 0;
+      const hasSuccesses = result.successful.length > 0;
+
+      let message: string;
+      let success: boolean;
+
+      if (hasSuccesses && !hasFailures) {
+        // All tasks processed successfully
+        success = true;
+        message = `Successfully ${action}d ${result.affected} tasks`;
+      } else if (hasSuccesses && hasFailures) {
+        // Partial success
+        success = true;
+        message = `Partially completed: ${result.affected} tasks ${action}d, ${result.failed.length} failed`;
+      } else {
+        // All tasks failed
+        success = false;
+        message = `Tasks not found or access denied: ${result.failed.join(', ')}`;
+      }
+
       return {
-        success: true,
-        message: `Successfully ${action}d ${result.affected} tasks`,
+        success,
+        message,
         processed: result.affected,
         failed: result.failed.length,
         failedTaskIds: result.failed.length > 0 ? result.failed : undefined,
-        successfulTaskIds: result.successful,
+        successfulTaskIds: result.successful.length > 0 ? result.successful : undefined,
       };
 
     } catch (error) {
