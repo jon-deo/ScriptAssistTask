@@ -222,8 +222,13 @@ export class TasksController {
   })
   async bulkCreate(@Body() createTaskDtos: CreateTaskDto[], @CurrentUser() user: any) {
     try {
-      // ✅ AUTHORIZATION: Add userId to all tasks
-      const tasksWithUser = createTaskDtos.map(dto => ({ ...dto, userId: user.id }));
+      // ✅ AUTHORIZATION: Check each task's userId - only admin can assign tasks to others
+      const tasksWithUser = createTaskDtos.map(dto => {
+        if (dto.userId && user.role !== 'admin' && dto.userId !== user.id) {
+          throw new ForbiddenException('You can only create tasks for yourself');
+        }
+        return { ...dto, userId: dto.userId || user.id };
+      });
       const result = await this.tasksService.bulkCreate(tasksWithUser);
 
       return {
