@@ -35,6 +35,11 @@ export class UsersService {
   }
 
   async findOne(id: string): Promise<User> {
+    // Validate UUID format first
+    if (!this.isValidUUID(id)) {
+      throw new NotFoundException('User not found');
+    }
+
     // ✅ OPTIMIZED: Cache user profiles for 5 minutes (frequently accessed, rarely changed)
     return this.cacheService.getOrSet(
       `user:${id}`,
@@ -54,6 +59,11 @@ export class UsersService {
   }
 
   async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
+    // Validate UUID format first
+    if (!this.isValidUUID(id)) {
+      throw new NotFoundException('User not found');
+    }
+
     const user = await this.findOne(id);
 
     if (updateUserDto.password) {
@@ -70,10 +80,23 @@ export class UsersService {
   }
 
   async remove(id: string): Promise<void> {
+    // Validate UUID format first
+    if (!this.isValidUUID(id)) {
+      throw new NotFoundException('User not found');
+    }
+
     const user = await this.findOne(id);
     await this.usersRepository.remove(user);
 
     // ✅ CACHE INVALIDATION: Clear user cache when deleted
     await this.cacheService.delete(`user:${id}`, 'users');
   }
-} 
+
+  /**
+   * Validate if a string is a valid UUID format
+   */
+  private isValidUUID(uuid: string): boolean {
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    return uuidRegex.test(uuid);
+  }
+}

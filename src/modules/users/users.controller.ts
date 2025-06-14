@@ -37,7 +37,7 @@ export class UsersController {
   @ApiOperation({ summary: 'Get user by ID' })
   @ApiResponse({ status: 200, description: 'User found successfully' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
-  @ApiResponse({ status: 404, description: 'User not found' })
+  @ApiResponse({ status: 404, description: 'User not found or invalid UUID format' })
   findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
   }
