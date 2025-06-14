@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ForbiddenException } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Task } from './entities/task.entity';
@@ -22,8 +22,9 @@ export class TasksService {
   ) { }
 
   async create(createTaskDto: CreateTaskDto, userId: string): Promise<Task> {
-    // ✅ AUTHORIZATION: Ensure task is created for the authenticated user
-    const taskData = { ...createTaskDto, userId };
+    // ✅ AUTHORIZATION: Use userId from DTO if provided (admin can assign to others),
+    // otherwise use authenticated user's ID (authorization is handled in controller)
+    const taskData = { ...createTaskDto, userId: createTaskDto.userId || userId };
 
     // ✅ OPTIMIZED: Atomic operation with transaction management
     return await this.dataSource.transaction(async manager => {
