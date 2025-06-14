@@ -25,27 +25,27 @@ export class ErrorSanitizationService {
     /constraint/gi,
     /relation/gi,
     /entity/gi,
-    
+
     // File system paths
     /[a-zA-Z]:\\[^\\s]*/g, // Windows paths
     /\/[a-zA-Z0-9_\-\/.]*/g, // Unix paths (but keep simple ones)
     /src\/[^\\s]*/g, // Source code paths
     /node_modules\/[^\\s]*/g, // Node modules paths
-    
+
     // Technology stack indicators
     /typeorm/gi,
     /nestjs/gi,
     /postgresql/gi,
     /redis/gi,
     /bullmq/gi,
-    
+
     // Internal details
     /repository/gi,
     /service/gi,
     /controller/gi,
     /guard/gi,
     /strategy/gi,
-    
+
     // Connection strings and credentials
     /password[=:][^\\s]*/gi,
     /token[=:][^\\s]*/gi,
@@ -75,7 +75,7 @@ export class ErrorSanitizationService {
    */
   sanitizeError(error: any, statusCode: number, path: string): SanitizedError {
     const timestamp = new Date().toISOString();
-    
+
     // Log the original error for debugging (server-side only)
     this.logOriginalError(error, statusCode, path);
 
@@ -96,9 +96,17 @@ export class ErrorSanitizationService {
    * Get safe error message based on status code and error type
    */
   private getSafeMessage(error: any, statusCode: number): string {
-    // In development, show more details (but still sanitized)
-    if (this.isDevelopment && error?.message) {
-      return this.sanitizeMessage(error.message);
+    // In development, show detailed validation errors for better DX
+    if (this.isDevelopment) {
+      // For validation errors (400), show the actual validation messages
+      if (statusCode === 400 && this.isValidationError(error)) {
+        return this.getDetailedValidationMessage(error);
+      }
+
+      // For other errors, show sanitized message
+      if (error?.message) {
+        return this.sanitizeMessage(error.message);
+      }
     }
 
     // In production, use generic messages
@@ -185,10 +193,10 @@ export class ErrorSanitizationService {
 
     // Remove query parameters that might contain sensitive data
     const cleanPath = path.split('?')[0];
-    
+
     // Replace UUIDs and other IDs with generic placeholder
     return cleanPath.replace(/[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi, ':id')
-                   .replace(/\/\d+/g, '/:id');
+      .replace(/\/\d+/g, '/:id');
   }
 
   /**
@@ -219,8 +227,52 @@ export class ErrorSanitizationService {
   isSensitiveError(error: any): boolean {
     if (!error?.message) return false;
 
-    return this.sensitivePatterns.some(pattern => 
+    return this.sensitivePatterns.some(pattern =>
       pattern.test(error.message)
     );
+  }
+
+  /**
+   * Check if error is a validation error
+   */
+  private isValidationError(error: any): boolean {
+    if (!error || typeof error !== 'object') return false;
+
+    // Check for NestJS validation pipe errors
+    return (
+      error.name === 'ValidationError' ||
+      error.message?.includes('validation') ||
+      (Array.isArray(error.response?.message) && error.status === 400) ||
+      (error.response && Array.isArray(error.response.message))
+    );
+  }
+
+  /**
+   * Extract detailed validation messages for development environment
+   */
+  private getDetailedValidationMessage(error: any): string {
+    try {
+      // Handle NestJS validation pipe error format
+      if (error.response && Array.isArray(error.response.message)) {
+        const validationErrors = error.response.message;
+        return `Validation failed: ${validationErrors.join(', ')}`;
+      }
+
+      // Handle direct validation error messages
+      if (Array.isArray(error.message)) {
+        return `Validation failed: ${error.message.join(', ')}`;
+      }
+
+      // Handle single validation error
+      if (error.message && typeof error.message === 'string') {
+        return error.message;
+      }
+
+      // Fallback to generic validation message
+      return this.genericMessages.validation;
+    } catch (e) {
+      // If anything goes wrong, return generic message
+      return this.genericMessages.validation;
+    }
   }
 }

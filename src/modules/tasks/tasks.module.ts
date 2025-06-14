@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
 import { TasksService } from './tasks.service';
@@ -15,8 +15,8 @@ import { ScheduledTasksModule } from '../../queues/scheduled-tasks/scheduled-tas
       name: 'task-processing',
     }),
     CommonModule, // Import to access RateLimitingService
-    TaskProcessorModule, // Import to access TaskProcessorService
-    ScheduledTasksModule, // Import to access OverdueTasksService
+    forwardRef(() => TaskProcessorModule), // Import to access TaskProcessorService
+    forwardRef(() => ScheduledTasksModule), // Import to access OverdueTasksService
   ],
   controllers: [TasksController],
   providers: [TasksService],

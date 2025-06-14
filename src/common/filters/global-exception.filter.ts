@@ -14,7 +14,7 @@ import { QueryFailedError } from 'typeorm';
 export class GlobalExceptionFilter implements ExceptionFilter {
   private readonly logger = new Logger(GlobalExceptionFilter.name);
 
-  constructor(private readonly errorSanitizationService: ErrorSanitizationService) {}
+  constructor(private readonly errorSanitizationService: ErrorSanitizationService) { }
 
   catch(exception: unknown, host: ArgumentsHost): void {
     const ctx = host.switchToHttp();
@@ -114,13 +114,15 @@ export class GlobalExceptionFilter implements ExceptionFilter {
    */
   private isValidationError(exception: unknown): boolean {
     if (!exception || typeof exception !== 'object') return false;
-    
+
     const error = exception as any;
     return (
       error.name === 'ValidationError' ||
       error.message?.includes('validation') ||
       error.message?.includes('invalid') ||
-      (Array.isArray(error.response?.message) && error.status === 400)
+      (Array.isArray(error.response?.message) && error.status === 400) ||
+      (error instanceof HttpException && error.getStatus() === 400 &&
+        typeof error.getResponse() === 'object' && (error.getResponse() as any)?.message)
     );
   }
 
@@ -129,7 +131,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
    */
   private isAuthenticationError(exception: unknown): boolean {
     if (!exception || typeof exception !== 'object') return false;
-    
+
     const error = exception as any;
     return (
       error.name === 'UnauthorizedError' ||
@@ -146,7 +148,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
    */
   private isAuthorizationError(exception: unknown): boolean {
     if (!exception || typeof exception !== 'object') return false;
-    
+
     const error = exception as any;
     return (
       error.name === 'ForbiddenError' ||
@@ -162,12 +164,12 @@ export class GlobalExceptionFilter implements ExceptionFilter {
   private setSecurityHeaders(response: Response): void {
     // Remove server information
     response.removeHeader('X-Powered-By');
-    
+
     // Add security headers
     response.setHeader('X-Content-Type-Options', 'nosniff');
     response.setHeader('X-Frame-Options', 'DENY');
     response.setHeader('X-XSS-Protection', '1; mode=block');
-    
+
     // Don't cache error responses
     response.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
     response.setHeader('Pragma', 'no-cache');

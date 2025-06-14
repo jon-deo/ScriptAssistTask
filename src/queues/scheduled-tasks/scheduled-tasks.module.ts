@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { BullModule } from '@nestjs/bullmq';
 import { OverdueTasksService } from './overdue-tasks.service';
@@ -10,9 +10,9 @@ import { TasksModule } from '../../modules/tasks/tasks.module';
     BullModule.registerQueue({
       name: 'task-processing',
     }),
-    TasksModule,
+    forwardRef(() => TasksModule),
   ],
   providers: [OverdueTasksService],
   exports: [OverdueTasksService],
 })
-export class ScheduledTasksModule {} 
+export class ScheduledTasksModule { }
