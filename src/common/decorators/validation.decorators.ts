@@ -21,11 +21,6 @@ export class IsStrongPasswordConstraint implements ValidatorConstraintInterface 
       return false;
     }
 
-    // Check maximum length
-    if (password.length > 128) {
-      return false;
-    }
-
     // Check for at least one lowercase letter
     if (!/[a-z]/.test(password)) {
       return false;
@@ -43,12 +38,6 @@ export class IsStrongPasswordConstraint implements ValidatorConstraintInterface 
 
     // Check for at least one special character
     if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(password)) {
-      return false;
-    }
-
-    // Check for common weak passwords
-    const weakPasswords = ['password', '123456', 'qwerty', 'admin', 'letmein'];
-    if (weakPasswords.some(weak => password.toLowerCase().includes(weak))) {
       return false;
     }
 
