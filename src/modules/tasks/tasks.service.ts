@@ -59,10 +59,7 @@ export class TasksService {
         });
 
         // ✅ CACHE INVALIDATION: Clear task-related caches when new task is created
-        await Promise.all([
-          this.cacheService.deletePattern('list:*', 'tasks'), // Clear all task lists
-          this.cacheService.deletePattern('stats:*', 'tasks'), // Clear all stats
-        ]);
+        await this.clearTaskCaches();
 
         return savedTask;
       } catch (error) {
@@ -255,10 +252,11 @@ export class TasksService {
         }
 
         // ✅ CACHE INVALIDATION: Clear task-related caches when task is updated
-        await Promise.all([
-          this.cacheService.deletePattern('list:*', 'tasks'), // Clear all task lists
-          this.cacheService.deletePattern('stats:*', 'tasks'), // Clear all stats
-        ]);
+        // Clear caches for both old and new user (in case userId changed)
+        await this.clearTaskCaches(originalTask.userId);
+        if (updateTaskDto.userId && updateTaskDto.userId !== originalTask.userId) {
+          await this.clearTaskCaches(updateTaskDto.userId);
+        }
 
         return updatedTask!;
       } catch (error) {
@@ -296,10 +294,7 @@ export class TasksService {
     }
 
     // ✅ CACHE INVALIDATION: Clear task-related caches when task is deleted
-    await Promise.all([
-      this.cacheService.deletePattern('list:*', 'tasks'), // Clear all task lists
-      this.cacheService.deletePattern('stats:*', 'tasks'), // Clear all stats
-    ]);
+    await this.clearTaskCaches();
   }
 
   async findByStatus(status: TaskStatus): Promise<Task[]> {
@@ -692,5 +687,68 @@ export class TasksService {
     const missingIds = taskIds.filter(id => !existingIds.includes(id));
 
     return { existing: existingIds, missing: missingIds };
+  }
+
+  /**
+   * ✅ OPTIMIZED: Centralized cache invalidation for task operations
+   * Simple but effective approach to clear all task-related caches
+   */
+  private async clearTaskCaches(specificUserId?: string): Promise<void> {
+    try {
+      // ✅ SIMPLE & EFFECTIVE: Clear specific cache types instead of pattern matching
+      const cachePromises = [];
+
+      // Clear all possible list cache variations (different filter combinations)
+      const commonFilters = [
+        {}, // No filters
+        { status: 'PENDING' },
+        { status: 'IN_PROGRESS' },
+        { status: 'COMPLETED' },
+        { priority: 'LOW' },
+        { priority: 'MEDIUM' },
+        { priority: 'HIGH' },
+      ];
+
+      // Clear caches for different page/limit combinations
+      const paginationOptions = [
+        { page: 1, limit: 10 },
+        { page: 1, limit: 20 },
+        { page: 1, limit: 50 },
+      ];
+
+      // Generate cache keys for common filter combinations
+      for (const filters of commonFilters) {
+        for (const pagination of paginationOptions) {
+          // Clear general caches
+          const cacheKey = `list:${JSON.stringify({ ...filters, ...pagination, sortBy: 'createdAt', sortOrder: 'DESC' })}`;
+          cachePromises.push(this.cacheService.delete(cacheKey, 'tasks'));
+
+          // ✅ USER-SPECIFIC: Clear caches for specific user if provided
+          if (specificUserId) {
+            const userCacheKey = `list:${JSON.stringify({ ...filters, userId: specificUserId, ...pagination, sortBy: 'createdAt', sortOrder: 'DESC' })}`;
+            cachePromises.push(this.cacheService.delete(userCacheKey, 'tasks'));
+          }
+        }
+      }
+
+      // ✅ STATS: Clear user-specific stats cache
+      if (specificUserId) {
+        cachePromises.push(this.cacheService.delete(`stats:user:${specificUserId}`, 'tasks'));
+      }
+
+      // ✅ FALLBACK: Also try pattern deletion as backup
+      cachePromises.push(
+        this.cacheService.deletePattern('list:*', 'tasks'),
+        this.cacheService.deletePattern('stats:*', 'tasks')
+      );
+
+      await Promise.all(cachePromises);
+
+      // ✅ DEBUG: Log cache clearing for troubleshooting (remove in production)
+      console.log(`Cleared ${cachePromises.length} task cache entries${specificUserId ? ` for user ${specificUserId}` : ''}`);
+    } catch (error) {
+      // ✅ RESILIENT: Don't fail the operation if cache clearing fails
+      console.warn('Cache clearing failed:', error);
+    }
   }
 }
