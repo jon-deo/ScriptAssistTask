@@ -2,6 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ClassSeri
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
+import { UserResponseDto } from './dto/user-response.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
@@ -16,52 +17,66 @@ export class UsersController {
 
   @Post()
   @ApiOperation({ summary: 'Create a new user' })
-  @ApiResponse({ status: 201, description: 'User created successfully' })
+  @ApiResponse({ status: 201, description: 'User created successfully', type: UserResponseDto })
   @ApiResponse({ status: 400, description: 'Validation failed' })
   @ApiResponse({ status: 409, description: 'Email already exists' })
-  create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  async create(@Body() createUserDto: CreateUserDto): Promise<UserResponseDto> {
+    const user = await this.usersService.create(createUserDto);
+    return new UserResponseDto(user);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
   @Roles('admin')
   @ApiBearerAuth()
   @Get()
-  findAll() {
+  @ApiOperation({ summary: 'Get all users (admin only)' })
+  @ApiResponse({ status: 200, description: 'Users retrieved successfully', type: [UserResponseDto] })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Admin access required' })
+  async findAll(): Promise<UserResponseDto[]> {
     // ✅ AUTHORIZATION: Only admins can view all users
-    return this.usersService.findAll();
+    const users = await this.usersService.findAll();
+    return users.map(user => new UserResponseDto(user));
   }
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Get(':id')
   @ApiOperation({ summary: 'Get user by ID (users can only access their own data, admins can access any user)' })
-  @ApiResponse({ status: 200, description: 'User found successfully' })
+  @ApiResponse({ status: 200, description: 'User found successfully', type: UserResponseDto })
   @ApiResponse({ status: 401, description: 'Authentication required' })
   @ApiResponse({ status: 403, description: 'Access denied - can only access your own data' })
   @ApiResponse({ status: 404, description: 'User not found or invalid UUID format' })
-  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+  async findOne(@Param('id') id: string, @CurrentUser() user: any): Promise<UserResponseDto> {
     // ✅ AUTHORIZATION: Users can only access their own data, admins can access any user
     if (user.role !== 'admin' && user.id !== id) {
       throw new ForbiddenException('Access denied - you can only access your own data');
     }
-    return this.usersService.findOne(id);
+    const foundUser = await this.usersService.findOne(id);
+    return new UserResponseDto(foundUser);
   }
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Patch(':id')
   @ApiOperation({ summary: 'Update user by ID (users can only update their own data, admins can update any user)' })
-  @ApiResponse({ status: 200, description: 'User updated successfully' })
+  @ApiResponse({ status: 200, description: 'User updated successfully', type: UserResponseDto })
   @ApiResponse({ status: 401, description: 'Authentication required' })
-  @ApiResponse({ status: 403, description: 'Access denied - can only update your own data' })
+  @ApiResponse({ status: 403, description: 'Access denied - can only update your own data or role changes require admin' })
   @ApiResponse({ status: 404, description: 'User not found or invalid UUID format' })
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @CurrentUser() user: any) {
+  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @CurrentUser() user: any): Promise<UserResponseDto> {
     // ✅ AUTHORIZATION: Users can only update their own data, admins can update any user
     if (user.role !== 'admin' && user.id !== id) {
       throw new ForbiddenException('Access denied - you can only update your own data');
     }
-    return this.usersService.update(id, updateUserDto);
+
+    // ✅ SECURITY: Prevent role escalation - only admins can change roles
+    if (updateUserDto.role && user.role !== 'admin') {
+      throw new ForbiddenException('Access denied - only administrators can change user roles');
+    }
+
+    const updatedUser = await this.usersService.update(id, updateUserDto);
+    return new UserResponseDto(updatedUser);
   }
 
   @UseGuards(JwtAuthGuard, RolesGuard)
