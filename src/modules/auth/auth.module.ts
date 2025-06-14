@@ -9,10 +9,12 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { RefreshTokenService } from './services/refresh-token.service';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { UsersModule } from '../users/users.module';
+import { CommonModule } from '../../common/common.module';
 
 @Module({
   imports: [
     UsersModule,
+    CommonModule, // Import CommonModule to access RateLimitGuard
     PassportModule.register({ defaultStrategy: 'jwt' }),
     TypeOrmModule.forFeature([RefreshToken]),
     JwtModule.registerAsync({

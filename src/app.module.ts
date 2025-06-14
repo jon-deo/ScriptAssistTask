@@ -2,9 +2,9 @@ import { Module, MiddlewareConsumer, NestModule, ValidationPipe } from '@nestjs/
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { BullModule } from '@nestjs/bullmq';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { ScheduleModule } from '@nestjs/schedule';
-import { APP_FILTER, APP_PIPE } from '@nestjs/core';
+import { APP_FILTER, APP_PIPE, APP_GUARD } from '@nestjs/core';
 import { UsersModule } from './modules/users/users.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -117,6 +117,11 @@ import jwtConfig from './config/jwt.config';
         forbidUnknownValues: true, // Forbid unknown objects
         stopAtFirstError: false,   // Validate all properties
       }),
+    },
+    // Global throttler guard as fallback rate limiting
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
     },
   ],
   exports: [

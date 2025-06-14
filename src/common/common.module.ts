@@ -5,6 +5,7 @@ import { RateLimitingService } from './services/rate-limiting.service';
 import { ErrorSanitizationService } from './services/error-sanitization.service';
 import { QueryPerformanceService } from './services/query-performance.service';
 import { GlobalExceptionFilter } from './filters/global-exception.filter';
+import { RateLimitGuard } from './guards/rate-limit.guard';
 
 @Module({
   imports: [ConfigModule],
@@ -14,6 +15,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     ErrorSanitizationService,
     QueryPerformanceService,
     GlobalExceptionFilter,
+    RateLimitGuard,
   ],
   exports: [
     RedisCacheService,
@@ -21,6 +23,7 @@ import { GlobalExceptionFilter } from './filters/global-exception.filter';
     ErrorSanitizationService,
     QueryPerformanceService,
     GlobalExceptionFilter,
+    RateLimitGuard,
   ],
 })
 export class CommonModule { }

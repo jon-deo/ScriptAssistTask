@@ -31,22 +31,33 @@ export class RateLimitGuard implements CanActivate {
     // Generate identifier for rate limiting
     const identifier = this.generateIdentifier(request);
 
+    this.logger.debug(`Rate limit check for identifier: ${identifier.substring(0, 10)}... with limit: ${rateLimitOptions.limit}, window: ${rateLimitOptions.windowMs}ms`);
+
     try {
       const result = await this.rateLimitingService.checkRateLimit(
         identifier,
         rateLimitOptions,
       );
 
+      this.logger.debug(`Rate limit result: allowed=${result.allowed}, remaining=${result.remaining}/${result.limit}`);
+
       // Add rate limit headers to response
       this.addRateLimitHeaders(response, result);
 
       if (!result.allowed) {
+        this.logger.warn(`Rate limit exceeded for ${identifier.substring(0, 10)}... - throwing exception`);
         this.throwRateLimitException(result);
       }
 
       return true;
     } catch (error) {
-      this.logger.error('Rate limiting error:', error);
+      // Only catch service errors, not rate limit exceptions
+      if (error instanceof HttpException && error.getStatus() === HttpStatus.TOO_MANY_REQUESTS) {
+        // Re-throw rate limit exceptions - they should not be caught here
+        throw error;
+      }
+
+      this.logger.error('Rate limiting service error:', error);
       // In case of rate limiting service failure, allow the request
       // This prevents rate limiting from breaking the entire application
       return true;
