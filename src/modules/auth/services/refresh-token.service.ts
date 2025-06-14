@@ -167,8 +167,8 @@ export class RefreshTokenService {
   private calculateExpirationDate(duration: string): Date {
     const now = new Date();
 
-    // Parse duration (e.g., "7d", "24h", "30m")
-    const match = duration.match(/^(\d+)([dhm])$/);
+    // Parse duration (e.g., "7d", "24h", "30m", "10s")
+    const match = duration.match(/^(\d+)([dhms])$/);
     if (!match) {
       // Default to 7 days if parsing fails
       return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -184,6 +184,8 @@ export class RefreshTokenService {
         return new Date(now.getTime() + numValue * 60 * 60 * 1000);
       case 'm': // minutes
         return new Date(now.getTime() + numValue * 60 * 1000);
+      case 's': // seconds
+        return new Date(now.getTime() + numValue * 1000);
       default:
         return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
     }
