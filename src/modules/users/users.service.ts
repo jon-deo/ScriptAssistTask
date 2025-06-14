@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -86,10 +86,23 @@ export class UsersService {
     }
 
     const user = await this.findOne(id);
-    await this.usersRepository.remove(user);
 
-    // ✅ CACHE INVALIDATION: Clear user cache when deleted
-    await this.cacheService.delete(`user:${id}`, 'users');
+    try {
+      await this.usersRepository.remove(user);
+
+      // ✅ CACHE INVALIDATION: Clear user cache when deleted
+      await this.cacheService.delete(`user:${id}`, 'users');
+    } catch (error: any) {
+      // Handle foreign key constraint violations
+      if (error.code === '23503' || error.message?.includes('foreign key constraint')) {
+        throw new BadRequestException(
+          'Cannot delete user because they have related records. Please remove or transfer their data first.'
+        );
+      }
+
+      // Re-throw other database errors
+      throw error;
+    }
   }
 
   /**
