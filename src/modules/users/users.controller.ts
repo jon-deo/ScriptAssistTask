@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ApiBearerAuth, ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { Roles } from '../../common/decorators/roles.decorator';
 import { RolesGuard } from '../../common/guards/roles.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
 
 @ApiTags('users')
 @Controller('users')
@@ -34,18 +35,32 @@ export class UsersController {
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Get(':id')
-  @ApiOperation({ summary: 'Get user by ID' })
+  @ApiOperation({ summary: 'Get user by ID (users can only access their own data, admins can access any user)' })
   @ApiResponse({ status: 200, description: 'User found successfully' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Access denied - can only access your own data' })
   @ApiResponse({ status: 404, description: 'User not found or invalid UUID format' })
-  findOne(@Param('id') id: string) {
+  findOne(@Param('id') id: string, @CurrentUser() user: any) {
+    // ✅ AUTHORIZATION: Users can only access their own data, admins can access any user
+    if (user.role !== 'admin' && user.id !== id) {
+      throw new ForbiddenException('Access denied - you can only access your own data');
+    }
     return this.usersService.findOne(id);
   }
 
   @UseGuards(JwtAuthGuard)
   @ApiBearerAuth()
   @Patch(':id')
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+  @ApiOperation({ summary: 'Update user by ID (users can only update their own data, admins can update any user)' })
+  @ApiResponse({ status: 200, description: 'User updated successfully' })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Access denied - can only update your own data' })
+  @ApiResponse({ status: 404, description: 'User not found or invalid UUID format' })
+  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto, @CurrentUser() user: any) {
+    // ✅ AUTHORIZATION: Users can only update their own data, admins can update any user
+    if (user.role !== 'admin' && user.id !== id) {
+      throw new ForbiddenException('Access denied - you can only update your own data');
+    }
     return this.usersService.update(id, updateUserDto);
   }
 
