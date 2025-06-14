@@ -156,13 +156,21 @@ export class TasksController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Delete a task' })
-  @ApiResponse({ status: 204, description: 'Task deleted successfully' })
+  @ApiResponse({ status: 200, description: 'Task deleted successfully' })
+  @ApiResponse({ status: 403, description: 'Insufficient permission: You can only delete your own tasks' })
   @ApiResponse({ status: 404, description: 'Task not found' })
   async remove(@Param('id') id: string, @CurrentUser() user: any) {
     // ✅ AUTHORIZATION: Check ownership at service level
     await this.tasksService.remove(id, user.id, user.role);
-    // Return 204 No Content for successful deletion
-    return;
+
+    // ✅ RESPONSE: Return success message with task ID
+    return {
+      success: true,
+      message: 'Task deleted successfully',
+      taskId: id,
+      deletedBy: user.id,
+      timestamp: new Date().toISOString(),
+    };
   }
 
   @Post('batch')

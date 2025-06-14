@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Task } from './entities/task.entity';
@@ -115,12 +115,13 @@ export class TasksService {
       sortOrder = 'DESC'
     } = filters;
 
-    // ✅ CACHE: Create cache key based on filters (3 minutes TTL for task lists)
-    const cacheKey = `list:${JSON.stringify({ status, priority, userId, page, limit, sortBy, sortOrder })}`;
+    // ✅ CACHE: TEMPORARILY DISABLED - Create cache key based on filters (3 minutes TTL for task lists)
+    // const cacheKey = `list:${JSON.stringify({ status, priority, userId, page, limit, sortBy, sortOrder })}`;
 
-    return this.cacheService.getOrSet(
-      cacheKey,
-      async () => {
+    // TEMPORARY: Bypass cache and execute query directly
+    // return this.cacheService.getOrSet(
+    //   cacheKey,
+    //   async () => {
         // ✅ PERFORMANCE: Build query with database-level filtering
         const queryBuilder = this.tasksRepository.createQueryBuilder('task');
 
@@ -163,9 +164,9 @@ export class TasksService {
           hasNext,
           hasPrev,
         };
-      },
-      { ttl: 180, namespace: 'tasks' } // 3 minutes TTL for task lists
-    );
+    //   },
+    //   { ttl: 180, namespace: 'tasks' } // 3 minutes TTL for task lists
+    // );
   }
 
   async findOne(id: string, userId?: string, userRole?: string): Promise<Task> {
@@ -269,15 +270,21 @@ export class TasksService {
   }
 
   async remove(id: string, userId?: string, userRole?: string): Promise<void> {
-    // ✅ AUTHORIZATION: Check ownership before deletion
+    // ✅ AUTHORIZATION: Enhanced authorization logic to distinguish between "not found" and "insufficient permission"
     if (userRole !== 'admin' && userId) {
-      const task = await this.tasksRepository.findOne({
-        where: { id, userId },
-        select: ['id']
+      // First, check if the task exists at all
+      const taskExists = await this.tasksRepository.findOne({
+        where: { id },
+        select: ['id', 'userId']
       });
 
-      if (!task) {
+      if (!taskExists) {
         throw new NotFoundException('Task not found');
+      }
+
+      // If task exists but doesn't belong to the user, it's a permission issue
+      if (taskExists.userId !== userId) {
+        throw new ForbiddenException('Insufficient permission: You can only delete your own tasks');
       }
     }
 
