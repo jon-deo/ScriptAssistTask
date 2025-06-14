@@ -65,12 +65,17 @@ export class TasksController {
     return this.tasksService.getTaskStatistics(user.id, user.role);
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
   @Get('performance')
-  @ApiOperation({ summary: 'Get database performance metrics and index usage' })
+  @ApiOperation({ summary: 'Get database performance metrics and index usage (Admin only)' })
   @ApiResponse({
     status: 200,
     description: 'Performance metrics retrieved successfully'
   })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Admin access required' })
   async getPerformanceMetrics() {
     try {
       // ✅ MONITORING: Get comprehensive performance metrics
@@ -103,12 +108,17 @@ export class TasksController {
     }
   }
 
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @Roles('admin')
+  @ApiBearerAuth()
   @Get('cache-stats')
-  @ApiOperation({ summary: 'Get Redis cache statistics and performance metrics' })
+  @ApiOperation({ summary: 'Get Redis cache statistics and performance metrics (Admin only)' })
   @ApiResponse({
     status: 200,
     description: 'Cache statistics retrieved successfully'
   })
+  @ApiResponse({ status: 401, description: 'Authentication required' })
+  @ApiResponse({ status: 403, description: 'Admin access required' })
   async getCacheStats() {
     try {
       // ✅ MONITORING: Get cache performance metrics

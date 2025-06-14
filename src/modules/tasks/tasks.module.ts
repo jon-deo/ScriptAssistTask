@@ -7,6 +7,7 @@ import { Task } from './entities/task.entity';
 import { CommonModule } from '../../common/common.module';
 import { TaskProcessorModule } from '../../queues/task-processor/task-processor.module';
 import { ScheduledTasksModule } from '../../queues/scheduled-tasks/scheduled-tasks.module';
+import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { ScheduledTasksModule } from '../../queues/scheduled-tasks/scheduled-tas
       name: 'task-processing',
     }),
     CommonModule, // Import to access RateLimitingService
+    UsersModule, // Import to access UsersService for validation
     forwardRef(() => TaskProcessorModule), // Import to access TaskProcessorService
     forwardRef(() => ScheduledTasksModule), // Import to access OverdueTasksService
   ],

@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, DataSource } from 'typeorm';
 import { Task } from './entities/task.entity';
@@ -9,6 +9,7 @@ import { Queue } from 'bullmq';
 import { TaskStatus } from './enums/task-status.enum';
 import { TaskPriority } from './enums/task-priority.enum';
 import { RedisCacheService } from '../../common/services/redis-cache.service';
+import { UsersService } from '../users/users.service';
 
 @Injectable()
 export class TasksService {
@@ -19,12 +20,22 @@ export class TasksService {
     private taskQueue: Queue,
     private dataSource: DataSource,
     private readonly cacheService: RedisCacheService,
+    private readonly usersService: UsersService,
   ) { }
 
   async create(createTaskDto: CreateTaskDto, userId: string): Promise<Task> {
     // ✅ AUTHORIZATION: Use userId from DTO if provided (admin can assign to others),
     // otherwise use authenticated user's ID (authorization is handled in controller)
-    const taskData = { ...createTaskDto, userId: createTaskDto.userId || userId };
+    const targetUserId = createTaskDto.userId || userId;
+
+    // ✅ VALIDATION: Check if the target userId exists
+    try {
+      await this.usersService.findOne(targetUserId);
+    } catch (error) {
+      throw new BadRequestException('Invalid userId: User not found');
+    }
+
+    const taskData = { ...createTaskDto, userId: targetUserId };
 
     // ✅ OPTIMIZED: Atomic operation with transaction management
     return await this.dataSource.transaction(async manager => {
@@ -183,6 +194,15 @@ export class TasksService {
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto, userId?: string, userRole?: string): Promise<Task> {
+    // ✅ VALIDATION: Check if the userId in updateTaskDto exists (if provided)
+    if (updateTaskDto.userId) {
+      try {
+        await this.usersService.findOne(updateTaskDto.userId);
+      } catch (error) {
+        throw new BadRequestException('Invalid userId: User not found');
+      }
+    }
+
     // ✅ OPTIMIZED: Single query with transaction management
     return await this.dataSource.transaction(async manager => {
       try {
