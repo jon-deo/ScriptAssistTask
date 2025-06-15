@@ -59,7 +59,7 @@ export class TasksService {
         });
 
         // ✅ CACHE INVALIDATION: Clear task-related caches when new task is created
-        await this.clearTaskCaches();
+        await this.clearTaskCaches(savedTask.userId);
 
         return savedTask;
       } catch (error) {
@@ -170,25 +170,36 @@ export class TasksService {
   }
 
   async findOne(id: string, userId?: string, userRole?: string): Promise<Task> {
-    // ✅ AUTHORIZATION: Build query with ownership check
-    const whereCondition: any = { id };
+    // ✅ CACHE: Cache individual tasks for 5 minutes with user-specific keys
+    const cacheKey = userRole === 'admin'
+      ? `task:${id}:admin`
+      : `task:${id}:user:${userId}`;
 
-    // ✅ AUTHORIZATION: Non-admin users can only see their own tasks
-    if (userRole !== 'admin' && userId) {
-      whereCondition.userId = userId;
-    }
+    return this.cacheService.getOrSet(
+      cacheKey,
+      async () => {
+        // ✅ AUTHORIZATION: Build query with ownership check
+        const whereCondition: any = { id };
 
-    // ✅ OPTIMIZED: Single database call instead of count + findOne
-    const task = await this.tasksRepository.findOne({
-      where: whereCondition,
-      relations: ['user'],
-    });
+        // ✅ AUTHORIZATION: Non-admin users can only see their own tasks
+        if (userRole !== 'admin' && userId) {
+          whereCondition.userId = userId;
+        }
 
-    if (!task) {
-      throw new NotFoundException('Task not found');
-    }
+        // ✅ OPTIMIZED: Single database call instead of count + findOne
+        const task = await this.tasksRepository.findOne({
+          where: whereCondition,
+          relations: ['user'],
+        });
 
-    return task;
+        if (!task) {
+          throw new NotFoundException('Task not found');
+        }
+
+        return task;
+      },
+      { ttl: 300, namespace: 'tasks' } // 5 minutes TTL for individual tasks
+    );
   }
 
   async update(id: string, updateTaskDto: UpdateTaskDto, userId?: string, userRole?: string): Promise<Task> {
@@ -254,9 +265,9 @@ export class TasksService {
 
         // ✅ CACHE INVALIDATION: Clear task-related caches when task is updated
         // Clear caches for both old and new user (in case userId changed)
-        await this.clearTaskCaches(originalTask.userId);
+        await this.clearTaskCaches(originalTask.userId, id);
         if (updateTaskDto.userId && updateTaskDto.userId !== originalTask.userId) {
-          await this.clearTaskCaches(updateTaskDto.userId);
+          await this.clearTaskCaches(updateTaskDto.userId, id);
         }
 
         return updatedTask!;
@@ -301,7 +312,7 @@ export class TasksService {
     }
 
     // ✅ CACHE INVALIDATION: Clear task-related caches when task is deleted
-    await this.clearTaskCaches();
+    await this.clearTaskCaches(undefined, id);
   }
 
   async findByStatus(status: TaskStatus): Promise<Task[]> {
@@ -698,12 +709,37 @@ export class TasksService {
 
   /**
    * ✅ OPTIMIZED: Centralized cache invalidation for task operations
-   * Simple but effective approach to clear all task-related caches
+   * Enhanced to include individual task cache clearing
    */
-  private async clearTaskCaches(specificUserId?: string): Promise<void> {
+  private async clearTaskCaches(specificUserId?: string, specificTaskId?: string): Promise<void> {
     try {
       // ✅ SIMPLE & EFFECTIVE: Clear specific cache types instead of pattern matching
       const cachePromises = [];
+
+      // ✅ NEW: Clear individual task caches if specific task ID provided
+      if (specificTaskId) {
+        // Clear both admin and user-specific caches for this task
+        cachePromises.push(
+          this.cacheService.delete(`task:${specificTaskId}:admin`, 'tasks')
+        );
+
+        // If we know the specific user, clear their cache
+        if (specificUserId) {
+          cachePromises.push(
+            this.cacheService.delete(`task:${specificTaskId}:user:${specificUserId}`, 'tasks')
+          );
+        }
+
+        // ✅ FALLBACK: Clear all possible user caches for this task using pattern
+        cachePromises.push(
+          this.cacheService.deletePattern(`task:${specificTaskId}:*`, 'tasks')
+        );
+      } else {
+        // ✅ BULK: Clear all individual task caches when no specific task ID
+        cachePromises.push(
+          this.cacheService.deletePattern('task:*', 'tasks')
+        );
+      }
 
       // Clear all possible list cache variations (different filter combinations)
       const commonFilters = [
@@ -752,7 +788,7 @@ export class TasksService {
       await Promise.all(cachePromises);
 
       // ✅ DEBUG: Log cache clearing for troubleshooting (remove in production)
-      console.log(`Cleared ${cachePromises.length} task cache entries${specificUserId ? ` for user ${specificUserId}` : ''}`);
+      console.log(`Cleared ${cachePromises.length} task cache entries${specificTaskId ? ` for task ${specificTaskId}` : ''}${specificUserId ? ` for user ${specificUserId}` : ''}`);
     } catch (error) {
       // ✅ RESILIENT: Don't fail the operation if cache clearing fails
       console.warn('Cache clearing failed:', error);
