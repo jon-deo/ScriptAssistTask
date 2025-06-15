@@ -2,7 +2,7 @@ import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, Query, Ht
 import { TasksService } from './tasks.service';
 import { CreateTaskDto } from './dto/create-task.dto';
 import { UpdateTaskDto } from './dto/update-task.dto';
-import { BatchOperationDto, BatchOperationResponseDto, BatchAction } from './dto/batch-operation.dto';
+import { BatchOperationDto, BatchOperationResponseDto, BatchAction, BulkUpdateTaskDto } from './dto/batch-operation.dto';
 import { TaskFilterDto, PaginatedTaskResponseDto } from './dto/task-filter.dto';
 import { ApiBearerAuth, ApiOperation, ApiTags, ApiResponse } from '@nestjs/swagger';
 import { TaskStatus } from './enums/task-status.enum';
@@ -274,31 +274,12 @@ export class TasksController {
     }
   }
 
-  @Patch('bulk-update')
-  @ApiOperation({ summary: 'Update multiple tasks with different data' })
-  @ApiResponse({
-    status: 200,
-    description: 'Bulk update operation completed',
-  })
-  async bulkUpdate(@Body() updates: { id: string; data: Partial<UpdateTaskDto> }[], @CurrentUser() user: any) {
-    try {
-      // ✅ AUTHORIZATION: Pass user info for ownership checks
-      const result = await this.tasksService.bulkUpdate(updates, user.id, user.role);
-
-      return {
-        success: true,
-        message: `Successfully updated ${result.updated.length} tasks`,
-        updated: result.updated.length,
-        failed: result.failed.length,
-        updatedTaskIds: result.updated,
-        failedUpdates: result.failed,
-      };
-    } catch (error) {
-      throw new HttpException(
-        `Bulk update failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-        HttpStatus.INTERNAL_SERVER_ERROR
-      );
-    }
+  @Post('bulk-update')
+  @ApiOperation({ summary: 'Bulk update tasks' })
+  @ApiResponse({ status: 200, description: 'Tasks updated successfully' })
+  @ApiResponse({ status: 400, description: 'Bad Request' })
+  async bulkUpdateTasks(@Body() bulkUpdateDto: BulkUpdateTaskDto) {
+    return this.tasksService.bulkUpdateTasks(bulkUpdateDto);
   }
 
   // ✅ QUEUE MANAGEMENT ENDPOINTS (Admin only)

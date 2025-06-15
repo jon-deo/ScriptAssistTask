@@ -10,6 +10,7 @@ import { TaskStatus } from './enums/task-status.enum';
 import { TaskPriority } from './enums/task-priority.enum';
 import { RedisCacheService } from '../../common/services/redis-cache.service';
 import { UsersService } from '../users/users.service';
+import { BulkUpdateTaskDto } from './dto/batch-operation.dto';
 
 @Injectable()
 export class TasksService {
@@ -777,5 +778,36 @@ export class TasksService {
       // ✅ RESILIENT: Don't fail the operation if cache clearing fails
       console.warn('Cache clearing failed:', error);
     }
+  }
+
+  async bulkUpdateTasks(bulkUpdateDto: BulkUpdateTaskDto) {
+    const { updates } = bulkUpdateDto;
+    const results = {
+      success: true,
+      message: '',
+      updated: 0,
+      failed: 0,
+      updatedTaskIds: [] as string[],
+      failedUpdates: [] as { id: string; error: string }[]
+    };
+
+    for (const update of updates) {
+      try {
+        // Validate update data using UpdateTaskDto
+        const updateDto = new UpdateTaskDto();
+        Object.assign(updateDto, update.data);
+
+        // Update the task in the database
+        await this.tasksRepository.update(update.id, updateDto);
+        results.updated++;
+        results.updatedTaskIds.push(update.id);
+      } catch (error) {
+        results.failed++;
+        results.failedUpdates.push({ id: update.id, error: error instanceof Error ? error.message : 'Unknown error' });
+      }
+    }
+
+    results.message = `Successfully updated ${results.updated} tasks`;
+    return results;
   }
 }

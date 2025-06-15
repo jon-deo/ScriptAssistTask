@@ -1,5 +1,6 @@
 import { IsArray, IsEnum, IsNotEmpty, IsString, ArrayMinSize, ArrayMaxSize } from 'class-validator';
 import { ApiProperty } from '@nestjs/swagger';
+import { UpdateTaskDto } from './update-task.dto';
 
 export enum BatchAction {
   COMPLETE = 'complete',
@@ -69,4 +70,26 @@ export class BatchOperationResponseDto {
     type: [String]
   })
   successfulTaskIds?: string[];
+}
+
+export class BulkUpdateTaskDto {
+  @ApiProperty({
+    example: [
+      { id: '660e8400-e29b-41d4-a716-446655440000', data: { status: 'IN_PROGRESS' } },
+      { id: '660e8400-e29b-41d4-a716-446655440001', data: { priority: 'HIGH' } }
+    ],
+    description: 'Array of task update objects, each containing task ID and update data',
+    type: 'array',
+    items: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        data: { $ref: '#/components/schemas/UpdateTaskDto' }
+      }
+    }
+  })
+  @IsArray()
+  @ArrayMinSize(1, { message: 'At least one task update is required' })
+  @ArrayMaxSize(100, { message: 'Maximum 100 tasks can be updated at once' })
+  updates: Array<{ id: string; data: UpdateTaskDto }>;
 }
