@@ -115,13 +115,12 @@ export class TasksService {
       sortOrder = 'DESC'
     } = filters;
 
-    // ✅ CACHE: TEMPORARILY DISABLED - Create cache key based on filters (3 minutes TTL for task lists)
-    // const cacheKey = `list:${JSON.stringify({ status, priority, userId, page, limit, sortBy, sortOrder })}`;
+    // ✅ CACHE: Create cache key based on filters (3 minutes TTL for task lists)
+    const cacheKey = `list:${JSON.stringify({ status, priority, userId, page, limit, sortBy, sortOrder })}`;
 
-    // TEMPORARY: Bypass cache and execute query directly
-    // return this.cacheService.getOrSet(
-    //   cacheKey,
-    //   async () => {
+    return this.cacheService.getOrSet(
+      cacheKey,
+      async () => {
         // ✅ PERFORMANCE: Build query with database-level filtering
         const queryBuilder = this.tasksRepository.createQueryBuilder('task');
 
@@ -164,9 +163,9 @@ export class TasksService {
           hasNext,
           hasPrev,
         };
-    //   },
-    //   { ttl: 180, namespace: 'tasks' } // 3 minutes TTL for task lists
-    // );
+      },
+      { ttl: 180, namespace: 'tasks' } // 3 minutes TTL for task lists
+    );
   }
 
   async findOne(id: string, userId?: string, userRole?: string): Promise<Task> {
@@ -709,7 +708,7 @@ export class TasksService {
 
   /**
    * ✅ OPTIMIZED: Centralized cache invalidation for task operations
-   * Enhanced to include individual task cache clearing
+   * Enhanced to include individual task cache clearing and comprehensive list cache invalidation
    */
   private async clearTaskCaches(specificUserId?: string, specificTaskId?: string): Promise<void> {
     try {
@@ -741,37 +740,20 @@ export class TasksService {
         );
       }
 
-      // Clear all possible list cache variations (different filter combinations)
-      const commonFilters = [
-        {}, // No filters
-        { status: 'PENDING' },
-        { status: 'IN_PROGRESS' },
-        { status: 'COMPLETED' },
-        { priority: 'LOW' },
-        { priority: 'MEDIUM' },
-        { priority: 'HIGH' },
-      ];
+      // ✅ OPTIMIZED: Use pattern deletion instead of nested loops
+      // This replaces 400+ individual deletions with just a few pattern deletions
 
-      // Clear caches for different page/limit combinations
-      const paginationOptions = [
-        { page: 1, limit: 10 },
-        { page: 1, limit: 20 },
-        { page: 1, limit: 50 },
-      ];
+      // Clear all task list caches using pattern matching
+      cachePromises.push(
+        this.cacheService.deletePattern('list:*', 'tasks')
+      );
 
-      // Generate cache keys for common filter combinations
-      for (const filters of commonFilters) {
-        for (const pagination of paginationOptions) {
-          // Clear general caches
-          const cacheKey = `list:${JSON.stringify({ ...filters, ...pagination, sortBy: 'createdAt', sortOrder: 'DESC' })}`;
-          cachePromises.push(this.cacheService.delete(cacheKey, 'tasks'));
-
-          // ✅ USER-SPECIFIC: Clear caches for specific user if provided
-          if (specificUserId) {
-            const userCacheKey = `list:${JSON.stringify({ ...filters, userId: specificUserId, ...pagination, sortBy: 'createdAt', sortOrder: 'DESC' })}`;
-            cachePromises.push(this.cacheService.delete(userCacheKey, 'tasks'));
-          }
-        }
+      // ✅ USER-SPECIFIC: Clear user-specific list caches if provided
+      if (specificUserId) {
+        // Clear caches that contain this specific user
+        cachePromises.push(
+          this.cacheService.deletePattern(`list:*"userId":"${specificUserId}"*`, 'tasks')
+        );
       }
 
       // ✅ STATS: Clear user-specific stats cache
@@ -779,16 +761,18 @@ export class TasksService {
         cachePromises.push(this.cacheService.delete(`stats:user:${specificUserId}`, 'tasks'));
       }
 
-      // ✅ FALLBACK: Also try pattern deletion as backup
+      // ✅ GLOBAL STATS: Clear global stats cache
+      cachePromises.push(this.cacheService.delete('stats:global', 'tasks'));
+
+      // ✅ COMPREHENSIVE: Clear all stats caches using pattern
       cachePromises.push(
-        this.cacheService.deletePattern('list:*', 'tasks'),
         this.cacheService.deletePattern('stats:*', 'tasks')
       );
 
       await Promise.all(cachePromises);
 
-      // ✅ DEBUG: Log cache clearing for troubleshooting (remove in production)
-      console.log(`Cleared ${cachePromises.length} task cache entries${specificTaskId ? ` for task ${specificTaskId}` : ''}${specificUserId ? ` for user ${specificUserId}` : ''}`);
+      // ✅ DEBUG: Log optimized cache clearing (remove in production)
+      console.log(`✅ OPTIMIZED: Cleared task caches using ${cachePromises.length} efficient operations${specificTaskId ? ` for task ${specificTaskId}` : ''}${specificUserId ? ` for user ${specificUserId}` : ''}`);
     } catch (error) {
       // ✅ RESILIENT: Don't fail the operation if cache clearing fails
       console.warn('Cache clearing failed:', error);
