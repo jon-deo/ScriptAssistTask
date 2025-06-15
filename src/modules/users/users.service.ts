@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from './entities/user.entity';
@@ -79,13 +79,23 @@ export class UsersService {
     return updatedUser;
   }
 
-  async remove(id: string): Promise<void> {
+  async remove(id: string, currentUserId?: string): Promise<void> {
     // Validate UUID format first
     if (!this.isValidUUID(id)) {
       throw new NotFoundException('User not found');
     }
 
     const user = await this.findOne(id);
+
+    // ✅ SECURITY: Prevent self-deletion
+    if (currentUserId && id === currentUserId) {
+      throw new ForbiddenException('You cannot delete your own account');
+    }
+
+    // ✅ SECURITY: Prevent admin from deleting other admins
+    if (user.role === 'admin') {
+      throw new ForbiddenException('Cannot delete admin users. Contact system administrator.');
+    }
 
     try {
       await this.usersRepository.remove(user);

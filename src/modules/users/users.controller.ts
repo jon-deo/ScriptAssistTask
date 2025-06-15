@@ -90,15 +90,16 @@ export class UsersController {
   @ApiBearerAuth()
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
-  @ApiOperation({ summary: 'Delete user by ID (admin only)' })
+  @ApiOperation({ summary: 'Delete user by ID (admin only, cannot delete admins or self)' })
   @ApiResponse({ status: 200, description: 'User deleted successfully' })
   @ApiResponse({ status: 400, description: 'Cannot delete user with related records' })
   @ApiResponse({ status: 401, description: 'Authentication required' })
-  @ApiResponse({ status: 403, description: 'Admin access required' })
+  @ApiResponse({ status: 403, description: 'Admin access required, cannot delete admin users or self' })
   @ApiResponse({ status: 404, description: 'User not found or invalid UUID format' })
-  async remove(@Param('id') id: string): Promise<{ message: string }> {
+  async remove(@Param('id') id: string, @CurrentUser() currentUser: any): Promise<{ message: string }> {
     // ✅ AUTHORIZATION: Only admins can delete users
-    await this.usersService.remove(id);
+    // ✅ SECURITY: Prevent admin from deleting themselves or other admins
+    await this.usersService.remove(id, currentUser.id);
     return { message: 'User deleted successfully' };
   }
 } 
